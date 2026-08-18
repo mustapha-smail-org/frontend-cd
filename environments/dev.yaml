@@ -1,0 +1,11 @@
+# Desired state for the dev environment.
+# Updated automatically by .github/workflows/deploy.yml on every merge to
+# frontend's main branch. tag/digest/commit below are placeholders until the
+# first deployment runs — do not edit them by hand.
+environment: dev
+image:
+  tag: unset
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+source:
+  repository: mustapha-smail-org/frontend
+  commit: "0000000"

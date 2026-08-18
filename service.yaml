@@ -1,0 +1,11 @@
+apiVersion: delivery.citypulse.io/v1
+kind: ServiceDeployment
+metadata:
+  name: frontend
+  owner: data-platform
+spec:
+  provider: render
+  imageRepository: ghcr.io/mustapha-smail-org/frontend
+  health:
+    path: /healthz
+    timeoutSeconds: 300

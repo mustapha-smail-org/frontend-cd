@@ -1,0 +1,11 @@
+# Desired state for the staging environment.
+# Updated automatically by .github/workflows/deploy.yml when a semantic
+# version tag is released in frontend. tag/digest/commit below are
+# placeholders until the first release runs — do not edit them by hand.
+environment: staging
+image:
+  tag: unset
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+source:
+  repository: mustapha-smail-org/frontend
+  commit: "0000000"

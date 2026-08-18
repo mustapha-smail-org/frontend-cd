@@ -1,0 +1,11 @@
+# Desired state for the production environment.
+# Updated only via reviewed pull request (CODEOWNERS approval required for
+# this file). tag/digest/commit below are placeholders until the first
+# production promotion — do not edit them directly on main without review.
+environment: production
+image:
+  tag: unset
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+source:
+  repository: mustapha-smail-org/frontend
+  commit: "0000000"
