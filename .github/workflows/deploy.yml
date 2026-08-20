@@ -7,7 +7,7 @@ on:
         description: 'Target environment'
         required: true
         type: choice
-        options: [dev, staging, production]
+        options: [staging, production]
       image_digest:
         description: 'Immutable OCI image digest (sha256:...)'
         required: true
@@ -29,16 +29,15 @@ on:
 permissions:
   contents: write
 
-# Deliberately prefixed "cd-state-", not "deploy-": deploy-render.yml (called by
-# the deploy job below) uses its own concurrency group
-# `deploy-frontend-${{ inputs.environment }}`. If this workflow's top-level group
-# resolved to that same string, the run would wait on a concurrency slot it
-# already holds via its own deploy job and GitHub Actions would cancel it with
-# "Canceling since a deadlock was detected". See
+# Deliberately prefixed "cd-state-", not "deploy-": deploy-vps.yml (called by the
+# deploy job below) uses its own concurrency group
+# `deploy-vps-frontend-${{ inputs.environment }}`. Keeping this group distinct
+# avoids the run waiting on a slot it already holds via its own deploy job, which
+# GitHub Actions would cancel as a detected deadlock. See
 # deployment-workflows/docs/WORKFLOW_CONTRACTS.md, "Concurrency deadlock trap".
 concurrency:
   group: cd-state-frontend-${{ inputs.environment }}
-  cancel-in-progress: ${{ inputs.environment == 'dev' }}
+  cancel-in-progress: false
 
 jobs:
   update-desired-state:
@@ -108,75 +107,55 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      # Runtime config for the SPA image — see docs/RUNTIME_CONFIG.md and
-      # deployment-workflows/docs/TEMPLATE_GUIDE.md §1b/§4. The frontend image's
-      # container entrypoint reads this file at startup: everything except
-      # API_GATEWAY_URL is copied verbatim into window.__APP_CONFIG__
-      # (public/config.js); API_GATEWAY_URL is server-side only, substituted into
-      # nginx's proxy_pass target for the same-origin /api/ proxy.
-      #
-      # No secret values are needed today, but the %%SECRET:NAME%% substitution
-      # loop is kept generic and always runs — see
-      # data-ingestion-cd/.github/workflows/deploy.yml's push-config job for the
-      # pattern this mirrors. Adding a real secret later (e.g. a paid map tile
-      # provider token) is one new SECRET_<NAME> env line here, plus a matching
-      # %%SECRET:<NAME>%% token in the relevant config/app-config.<env>.json.
-      - name: Resolve and push app config to Render
-        env:
-          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_SERVICE_ID: ${{ inputs.environment == 'dev' && secrets.RENDER_SERVICE_ID_DEV || inputs.environment == 'staging' && secrets.RENDER_SERVICE_ID_STAGING || secrets.RENDER_SERVICE_ID_PRODUCTION }}
-          CONFIG_FILE: config/app-config.${{ inputs.environment }}.json
-          CONFIG_FILE_NAME: app-config.json
+      - name: Map environment to box directory
+        id: env
         run: |
-          if [ ! -f "$CONFIG_FILE" ]; then
-            echo "::error::No config file for environment '${{ inputs.environment }}' (${CONFIG_FILE})"
-            exit 1
-          fi
+          case "${{ inputs.environment }}" in
+            production) echo "dir=prod"    >> "$GITHUB_OUTPUT" ;;
+            staging)    echo "dir=staging" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::unsupported environment: ${{ inputs.environment }}"; exit 1 ;;
+          esac
 
-          RESOLVED=$(cat "$CONFIG_FILE")
-          for VAR_NAME in $(compgen -v | grep '^SECRET_'); do
-            TOKEN_NAME="${VAR_NAME#SECRET_}"
-            VALUE="${!VAR_NAME}"
-            RESOLVED="${RESOLVED//%%SECRET:${TOKEN_NAME}%%/${VALUE}}"
-          done
+      # Runtime config for the SPA image. The entrypoint reads app-config.json at
+      # startup: everything except API_GATEWAY_URL is copied into
+      # window.__APP_CONFIG__; API_GATEWAY_URL is the nginx /api proxy target.
+      # No secret values today, but resolve-config keeps the %%SECRET:NAME%%
+      # substitution generic — add one SECRET_<NAME> env line + a matching token
+      # in config/app-config.<env>.json when a real secret is needed.
+      - name: Resolve app config
+        uses: mustapha-smail-org/deployment-workflows/.github/actions/resolve-config@main
+        with:
+          template: config/app-config.${{ inputs.environment }}.json
+          output: staging-out/app-config.json
 
-          if echo "$RESOLVED" | grep -q '%%SECRET:'; then
-            echo "::error::Unresolved %%SECRET:...%% placeholder(s) remain in ${CONFIG_FILE} — check that a matching SECRET_<NAME> env var is declared in this step"
-            exit 1
-          fi
+      - name: Set up SSH to the VPS
+        uses: mustapha-smail-org/deployment-workflows/.github/actions/vps-ssh-setup@main
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          known-hosts: ${{ secrets.VPS_KNOWN_HOSTS }}
 
-          if [ -z "$RENDER_SERVICE_ID" ]; then
-            echo "::error::No RENDER_SERVICE_ID_* secret configured for environment '${{ inputs.environment }}'"
-            exit 1
-          fi
-
-          PAYLOAD=$(jq -n --arg content "$RESOLVED" '{content: $content}')
-          RESPONSE=$(curl -sS -w "\n%{http_code}" -X PUT \
-            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/secret-files/${CONFIG_FILE_NAME}" \
-            -H "Authorization: Bearer ${RENDER_API_KEY}" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD")
-
-          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-          BODY=$(echo "$RESPONSE" | sed '$d')
-
-          if [ "$HTTP_CODE" -ge 300 ]; then
-            echo "::error::Render secret-file API returned HTTP ${HTTP_CODE}: ${BODY}"
-            exit 1
-          fi
-
-          echo "Pushed config file '${CONFIG_FILE_NAME}' to Render service"
+      - name: Deliver config to the VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          DEST: /opt/citypulse/platform-infrastructure/environments/${{ steps.env.outputs.dir }}/secrets
+        run: |
+          scp -i ~/.ssh/vps_deploy_key -o IdentitiesOnly=yes \
+            staging-out/app-config.json \
+            "${VPS_USER}@${VPS_HOST}:${DEST}/"
+          ssh -i ~/.ssh/vps_deploy_key -o IdentitiesOnly=yes "${VPS_USER}@${VPS_HOST}" \
+            "chmod 600 ${DEST}/app-config.json"
+          echo "Delivered app-config.json to ${DEST}"
 
   deploy:
     needs: [update-desired-state, push-config]
-    uses: mustapha-smail-org/deployment-workflows/.github/workflows/deploy-render.yml@main
+    uses: mustapha-smail-org/deployment-workflows/.github/workflows/deploy-vps.yml@main
     with:
       service-name: frontend
       environment: ${{ inputs.environment }}
-      image-repository: ${{ needs.update-desired-state.outputs.image-repository }}
       image-digest: ${{ inputs.image_digest }}
-      health-check-url: ${{ inputs.health_check_url }}
-      health-check-path: /healthz
     secrets:
-      render-api-key: ${{ secrets.RENDER_API_KEY }}
-      service-id: ${{ inputs.environment == 'dev' && secrets.RENDER_SERVICE_ID_DEV || inputs.environment == 'staging' && secrets.RENDER_SERVICE_ID_STAGING || secrets.RENDER_SERVICE_ID_PRODUCTION }}
+      vps-host: ${{ secrets.VPS_HOST }}
+      vps-user: ${{ secrets.VPS_USER }}
+      vps-ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+      vps-known-hosts: ${{ secrets.VPS_KNOWN_HOSTS }}
