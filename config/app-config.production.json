@@ -1,5 +1,5 @@
 {
-  "API_GATEWAY_URL": "https://REPLACE_WITH_API_GATEWAY_PRODUCTION_RENDER_URL",
+  "API_GATEWAY_URL": "http://api-gateway:8080",
 
   "VITE_API_BASE_URL": "/",
   "VITE_MAP_TILE_URL": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
