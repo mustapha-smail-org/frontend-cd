@@ -98,57 +98,8 @@ jobs:
             git push
           fi
 
-  push-config:
-    needs: update-desired-state
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Map environment to box directory
-        id: env
-        run: |
-          case "${{ inputs.environment }}" in
-            production) echo "dir=prod"    >> "$GITHUB_OUTPUT" ;;
-            staging)    echo "dir=staging" >> "$GITHUB_OUTPUT" ;;
-            *) echo "::error::unsupported environment: ${{ inputs.environment }}"; exit 1 ;;
-          esac
-
-      # Runtime config for the SPA image. The entrypoint reads app-config.json at
-      # startup: everything except API_GATEWAY_URL is copied into
-      # window.__APP_CONFIG__; API_GATEWAY_URL is the nginx /api proxy target.
-      # No secret values today, but resolve-config keeps the %%SECRET:NAME%%
-      # substitution generic — add one SECRET_<NAME> env line + a matching token
-      # in config/app-config.<env>.json when a real secret is needed.
-      - name: Resolve app config
-        uses: mustapha-smail-org/deployment-workflows/.github/actions/resolve-config@main
-        with:
-          template: config/app-config.${{ inputs.environment }}.json
-          output: staging-out/app-config.json
-
-      - name: Set up SSH to the VPS
-        uses: mustapha-smail-org/deployment-workflows/.github/actions/vps-ssh-setup@main
-        with:
-          ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
-          known-hosts: ${{ secrets.VPS_KNOWN_HOSTS }}
-
-      - name: Deliver config to the VPS
-        env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-          DEST: /opt/citypulse/platform-infrastructure/environments/${{ steps.env.outputs.dir }}/secrets
-        run: |
-          scp -i ~/.ssh/vps_deploy_key -o IdentitiesOnly=yes \
-            staging-out/app-config.json \
-            "${VPS_USER}@${VPS_HOST}:${DEST}/"
-          ssh -i ~/.ssh/vps_deploy_key -o IdentitiesOnly=yes "${VPS_USER}@${VPS_HOST}" \
-            "chmod 600 ${DEST}/app-config.json"
-          echo "Delivered app-config.json to ${DEST}"
-
   deploy:
-    needs: [update-desired-state, push-config]
+    needs: [update-desired-state]
     uses: mustapha-smail-org/deployment-workflows/.github/workflows/deploy-vps.yml@main
     with:
       service-name: frontend
