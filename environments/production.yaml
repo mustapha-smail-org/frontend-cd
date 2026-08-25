@@ -4,8 +4,8 @@
 # production promotion — do not edit them directly on main without review.
 environment: production
 image:
-  tag: v0.1.5
-  digest: "sha256:b740a502f0ecb98e968561545e2ef3599b4988696a02f3db229608189754561e"
+  tag: v0.1.6
+  digest: "sha256:f69c391f3a22d019b5b1145c991cb16e8b46b318d412cd30fb542e7d5ad6ca74"
 source:
   repository: mustapha-smail-org/frontend
-  commit: "f6b6b9dee08abeee6389917dcea0bcd585f1b4d5"
+  commit: "0265aaf3566ce6639b221d8e185c478094435924"
