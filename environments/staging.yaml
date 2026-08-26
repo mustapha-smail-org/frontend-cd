@@ -4,8 +4,8 @@
 # placeholders until the first release runs — do not edit them by hand.
 environment: staging
 image:
-  tag: v0.1.7
-  digest: "sha256:0eec7ba1a463581a7afb613a95c178c1580ec16ead9df0b1397123b1f5780936"
+  tag: v1.0.8
+  digest: "sha256:d7f84b88dc4d5f1856dc2055d413dd245af51567d403c1707e2a49879fe96e6e"
 source:
   repository: mustapha-smail-org/frontend
-  commit: "6e2ce0bb1562aab8e62a060b74746d3f5da37078"
+  commit: "88e19b8d066ebfe982b07eb8c6e68bef5360b4c8"
